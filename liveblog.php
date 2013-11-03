@@ -1,10 +1,9 @@
 <?php
-
 /**
  * Plugin Name: Liveblog
  * Plugin URI: http://wordpress.org/extend/plugins/liveblog/
  * Description: Blogging: at the speed of live.
- * Version:     1.3
+ * Version:     1.4
  * Author:      WordPress.com VIP, Automattic
  * Author URI: http://vip.wordpress.com/
  * Text Domain: liveblog
@@ -34,13 +33,14 @@ final class WPCOM_Liveblog {
 
 	/** Constants *************************************************************/
 
-	const version          = '1.3';
+	const version          = '1.4';
 	const rewrites_version = 1;
 	const min_wp_version   = '3.5';
 	const key              = 'liveblog';
 	const url_endpoint     = 'liveblog';
 	const edit_cap         = 'publish_posts';
 	const nonce_key        = 'liveblog_nonce';
+	const OPTIONS_KEY		= 'plugin_liveblog_settings';
 
 	const refresh_interval        = 10;   // how often should we refresh
 	const debug_refresh_interval  = 2;   // how often we refresh in development mode
@@ -52,10 +52,11 @@ final class WPCOM_Liveblog {
 
 	/** Variables *************************************************************/
 
-	private static $post_id               = null;
-	private static $entry_query           = null;
-	private static $do_not_cache_response = false;
-	private static $custom_template_path  = null;
+	private static $post_id               	= null;
+	private static $entry_query           	= null;
+	private static $do_not_cache_response 	= false;
+	private static $custom_template_path  	= null;
+	private static $plugin_settings 		= null;
 
 	/** Load Methods **********************************************************/
 
@@ -119,6 +120,8 @@ final class WPCOM_Liveblog {
 		add_action( 'wp_enqueue_scripts',            array( __CLASS__, 'enqueue_scripts'   ) );
 		add_action( 'admin_enqueue_scripts',         array( __CLASS__, 'admin_enqueue_scripts'   ) );
 		add_action( 'wp_ajax_set_liveblog_state_for_post', array( __CLASS__, 'admin_ajax_set_liveblog_state_for_post' ) );
+		/* Add administration menu to set options */
+		add_action(	'admin_menu',					array( __CLASS__, 'admin_menu' ) );
 	}
 
 	/**
@@ -166,6 +169,9 @@ final class WPCOM_Liveblog {
 		 * we can possibly introduce this to other post types later.
 		 */
 		add_post_type_support( 'post', self::key );
+
+		self::init_settings_object();
+
 		do_action( 'after_liveblog_init' );
 	}
 
@@ -336,6 +342,83 @@ final class WPCOM_Liveblog {
 			$state = 'enable';
 		}
 		return $state;
+	}
+
+	/**
+	 *	Create administration page under "Settings"
+	 */
+	public static function admin_menu() {
+		add_options_page( __( 'Liveblog Options', 'liveblog'), __( 'Liveblog Options', 'liveblog'), 'activate_plugins', 'plugin_liveblog_settings', array( __CLASS__, 'render_settings_page' ) );
+	}
+
+	/**
+	 * Render the settings page
+	 */
+	public static function render_settings_page() {
+		/* TODO: sanitize input */
+		if ( isset( $_POST ) && sizeof( $_POST ) > 0 ) {
+			if ( isset( $_POST['enable_simperium']) ) {
+				self::$plugin_settings->simperium->enabled = true;
+			} else {
+				self::$plugin_settings->simperium->enabled = false;
+			}
+			if ( isset( $_POST['simperium-appid'] ) ) {
+				self::$plugin_settings->simperium->application_id = $_POST['simperium-appid'];
+			}
+			if ( isset( $_POST['simperium-admin-apikey'] ) ) {
+				self::$plugin_settings->simperium->admin_api_key = $_POST['simperium-admin-apikey'];
+			}
+			if ( isset( $_POST['simperium-observer-apikey'] ) ) {
+				self::$plugin_settings->simperium->observer_api_key = $_POST['simperium-observer-apikey'];
+			}
+
+			self::save_settings();
+		}
+
+
+		$template_vars = array(
+			'simperium_enabled' => self::$plugin_settings->simperium->enabled,
+			'simperium_application_id' => self::$plugin_settings->simperium->application_id,
+			'simperium_admin_api_key' => self::$plugin_settings->simperium->admin_api_key,
+			'simperium_observer_api_key' => self::$plugin_settings->simperium->observer_api_key
+		);
+
+		echo self::get_template_part( 'liveblog-settings-page.php', $template_vars );
+	}
+
+	/**
+	 * Normalizes the settings object and sets its values to those saved in the options database.
+	 */
+	private static function init_settings_object() {
+		self::$plugin_settings = new stdClass();
+		/* Simperium options */
+		self::$plugin_settings->simperium = new stdClass();
+		self::$plugin_settings->simperium->enabled = false;
+		self::$plugin_settings->simperium->application_id = null;
+		self::$plugin_settings->simperium->admin_api_key = null;
+		self::$plugin_settings->simperium->observer_api_key = null;
+
+		$default_settings = get_option( self::OPTIONS_KEY );
+
+		if ( is_object( $default_settings ) ) {
+			if ( isset( $default_settings->simperium->enabled ) ) {
+				self::$plugin_settings->simperium->enabled = $default_settings->simperium->enabled;
+			}
+			if ( isset( $default_settings->simperium->application_id ) ) {
+				self::$plugin_settings->simperium->application_id = $default_settings->simperium->application_id;
+			}
+			if ( isset( $default_settings->simperium->admin_api_key ) ) {
+				self::$plugin_settings->simperium->admin_api_key = $default_settings->simperium->admin_api_key;
+			}
+			if ( isset( $default_settings->simperium->observer_api_key ) ) {
+				self::$plugin_settings->simperium->observer_api_key = $default_settings->simperium->observer_api_key;
+			}
+		}
+	}
+
+	private static function save_settings() {
+		/* TODO: option validation */
+		update_option( self::OPTIONS_KEY, self::$plugin_settings );
 	}
 
 	/** Private _is_ Methods **************************************************/
