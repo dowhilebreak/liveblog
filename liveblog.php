@@ -122,6 +122,8 @@ final class WPCOM_Liveblog {
 		add_action( 'wp_ajax_set_liveblog_state_for_post', array( __CLASS__, 'admin_ajax_set_liveblog_state_for_post' ) );
 		/* Add administration menu to set options */
 		add_action(	'admin_menu',					array( __CLASS__, 'admin_menu' ) );
+		add_action( 'liveblog_enable_simperium',			array( __CLASS__, 'liveblog_enable_simperium' ) );
+		add_action( 'liveblog_insert_entry', 		array( __CLASS__, 'liveblog_insert_entry' ) );
 	}
 
 	/**
@@ -184,6 +186,14 @@ final class WPCOM_Liveblog {
 			flush_rewrite_rules();
 			update_option( 'liveblog_rewrites_version', self::rewrites_version );
 		}
+	}
+
+	public static function liveblog_enable_simperium() {
+		self::create_simperium_user();
+	}
+
+	public static function liveblog_insert_entry( $update_id, $post_id ) {
+		self::update_simperium_bucket( $update_id, $post_id );
 	}
 
 	/**
@@ -357,6 +367,7 @@ final class WPCOM_Liveblog {
 	public static function render_settings_page() {
 		/* TODO: sanitize input */
 		if ( isset( $_POST ) && sizeof( $_POST ) > 0 ) {
+			$simperium_previously_enabled = self::$plugin_settings->simperium->enabled;
 			if ( isset( $_POST['enable_simperium']) ) {
 				self::$plugin_settings->simperium->enabled = true;
 			} else {
@@ -371,8 +382,19 @@ final class WPCOM_Liveblog {
 			if ( isset( $_POST['simperium-observer-apikey'] ) ) {
 				self::$plugin_settings->simperium->observer_api_key = $_POST['simperium-observer-apikey'];
 			}
+			if ( isset( $_POST['simperium-username'] ) && isset( $_POST['simperium-password'] ) ) {
+				self::$plugin_settings->simperium->username = $_POST['simperium-username'];
+				self::$plugin_settings->simperium->password = $_POST['simperium-password'];
+			} else {
+				self::get_simperium_username();
+				self::get_simperium_password();
+			}
 
 			self::save_settings();
+
+			if ( self::$plugin_settings->simperium->enabled && !$simperium_previously_enabled ) {
+				do_action( 'liveblog_enable_simperium' );
+			}
 		}
 
 
@@ -397,6 +419,9 @@ final class WPCOM_Liveblog {
 		self::$plugin_settings->simperium->application_id = null;
 		self::$plugin_settings->simperium->admin_api_key = null;
 		self::$plugin_settings->simperium->observer_api_key = null;
+		self::$plugin_settings->simperium->username = null;
+		self::$plugin_settings->simperium->password = null;
+		self::$plugin_settings->simperium->access_token = null;
 
 		$default_settings = get_option( self::OPTIONS_KEY );
 
@@ -412,6 +437,13 @@ final class WPCOM_Liveblog {
 			}
 			if ( isset( $default_settings->simperium->observer_api_key ) ) {
 				self::$plugin_settings->simperium->observer_api_key = $default_settings->simperium->observer_api_key;
+			}
+			if ( isset( $default_settings->simperium->username ) ) {
+				self::$plugin_settings->simperium->username = $default_settings->simperium->username;
+				self::$plugin_settings->simperium->password = $default_settings->simperium->password;
+
+				/* TODO: investigate storing token in session or something to prevent unnecessary background operations */
+				self::authorize_simperium_user();
 			}
 		}
 	}
@@ -578,6 +610,10 @@ final class WPCOM_Liveblog {
 			),
 		));
 
+		if ( self::$plugin_settings->simperium->enabled ) {
+			wp_enqueue_script( 'simperium', 'https://js.simperium.com/v0.1/' );
+		}
+
 		wp_enqueue_script( self::key, plugins_url( 'js/liveblog.js', __FILE__ ), array( 'jquery', 'jquery-color', 'backbone', 'jquery-throttle', 'moment' ), self::version, true );
 
 		if ( self::is_liveblog_editable() )  {
@@ -591,6 +627,25 @@ final class WPCOM_Liveblog {
 		} else {
 			wp_enqueue_script( 'spin',        plugins_url( 'js/spin.js',        __FILE__ ), false,                     '1.3' );
 			wp_enqueue_script( 'jquery.spin', plugins_url( 'js/jquery.spin.js', __FILE__ ), array( 'jquery', 'spin' ), '1.3' );
+		}
+
+		/* Default the Simperium settings array to not-enabled state. */
+		$simperium_support_settings = array(
+			'enabled'		=> false,
+			'app_id'		=> null,
+			'api_key'		=> null,
+			'username'		=> null,
+			'password'		=> null,
+			'access_token'	=> null
+		);
+
+		/* If Simperium support is enabled, set the array values */
+		if ( self::$plugin_settings->simperium->enabled ) {
+			$simperium_support_settings['enabled'] 	= true;
+			$simperium_support_settings['app_id']	= self::$plugin_settings->simperium->application_id;
+			$simperium_support_settings['api_key']	= self::is_liveblog_editable() ? self::$plugin_settings->simperium->admin_api_key : self::$plugin_settings->simperium->observer_api_key;
+			$simperium_support_settings['username']	= self::get_simperium_username();
+			$simperium_support_settings['password'] = self::get_simperium_password();
 		}
 
 		wp_localize_script( self::key, 'liveblog_settings',
@@ -618,6 +673,9 @@ final class WPCOM_Liveblog {
 				'short_error_message_template' => __( 'Error: {error-message}', 'liveblog' ),
 				'new_update'             => __( 'Liveblog: {number} new update' , 'liveblog'),
 				'new_updates'            => __( 'Liveblog: {number} new updates' , 'liveblog'),
+
+				// Simperium support
+				'simperium'				=> $simperium_support_settings
 			) )
 		);
 		wp_localize_script( 'liveblog-publisher', 'liveblog_publisher_settings', array(
@@ -979,6 +1037,147 @@ final class WPCOM_Liveblog {
 		}
 		return version_compare( $wp_version, self::min_wp_version, '<' );
 	}
+
+	/** Simperium-specific functions *****************************************/
+
+	private static function get_simperium_username() {
+		/* We spoof an email address per post based on the post's ID and the site's domain */
+		if ( is_null( self::$plugin_settings->simperium->username ) ) {
+			$url_pieces = parse_url( get_site_url() );
+			$this_host = "example.com";
+			if ( $url_pieces !== false && isset( $url_pieces['host']) ) {
+				$this_host = $url_pieces['host'];
+			}
+
+			self::$plugin_settings->simperium->username = 'simperium@liveblog.' . $this_host;
+		}
+
+		return self::$plugin_settings->simperium->username;
+	}
+
+	private static function get_simperium_password() {
+		/* Create an md5 hash of the site's declared URL for an automated password */
+		if ( is_null( self::$plugin_settings->simperium->password ) ) {
+			self::$plugin_settings->simperium->password = md5( get_site_url() );
+		}
+
+		return self::$plugin_settings->simperium->password;
+	}
+
+	private static function get_simperium_bucket_name( $post_id = null ) {
+		if ( is_null( $post_id ) ) {
+			$post_id = get_the_ID();
+		}
+
+		return "post-" . $post_id;
+	}
+
+	private static function create_simperium_user() {
+		$response = wp_remote_post( 'https://auth.simperium.com/1/' . urlencode(self::$plugin_settings->simperium->application_id) . '/create/', array(
+			'timeout' => 10,
+			'redirection' => 5,
+			'blocking' => true,
+			'headers' => array( 'X-Simperium-API-Key' => self::$plugin_settings->simperium->admin_api_key ),
+			'body' => json_encode( array( 'username' => self::$plugin_settings->simperium->username, 'password' => self::$plugin_settings->simperium->password ) )
+		    )
+		);
+
+		if ( is_wp_error( $response ) ) {
+		   $error_message = $response->get_error_message();
+		   /* TODO - do something with a failure */
+		} else {
+			if ( isset( $response['response']['code'] ) ) {
+				switch ( $response['response']['code'] ) {
+					case 200:
+						$message_body = json_decode($response['body']);
+						self::$plugin_settings->simperium->access_token = $message_body->access_token;
+						break;
+					case 409:
+						/* User already exists - assumed that the post was archived and then enabled again. Ignoring... */
+						break;
+					default:
+						break;
+				}
+		   	}
+		}
+	}
+
+	private static function authorize_simperium_user() {
+		/* TODO: need to secure this function to prevent unauthorized use (i.e. add logic around admin api key) */
+		$response = wp_remote_post( 'https://auth.simperium.com/1/' . urlencode(self::$plugin_settings->simperium->application_id) . '/authorize/', array(
+			'timeout' => 10,
+			'redirection' => 5,
+			'blocking' => true,
+			'headers' => array( 'X-Simperium-API-Key' => self::$plugin_settings->simperium->admin_api_key ),
+			'body' => json_encode( array( 'username' => self::$plugin_settings->simperium->username, 'password' => self::$plugin_settings->simperium->password ) )
+		    )
+		);
+
+		if ( is_wp_error( $response ) ) {
+		   $error_message = $response->get_error_message();
+		   /* TODO - do something with a failure */
+		} else {
+			if ( isset( $response['response']['code'] ) ) {
+				var_dump($response['response']['code']);
+				switch ( $response['response']['code'] ) {
+					case 200:
+						$message_body = json_decode($response['body']);
+						print_r($message_body);
+						self::$plugin_settings->simperium->access_token = $message_body->access_token;
+						break;
+					case 409:
+						/* User already exists - assumed that the post was archived and then enabled again. Ignoring... */
+						break;
+					default:
+						break;
+				}
+		   	}
+		}
+	}
+
+	private static function update_simperium_bucket( $update_id, $post_id ) {
+		$update = get_comment( $update_id );
+
+		print_r(self::$plugin_settings);
+
+		$response = wp_remote_post( 'https://api.simperium.com/1/' . urlencode( self::$plugin_settings->simperium->application_id ) . '/' . urlencode( self::get_simperium_bucket_name() ) . '/i/' . urlencode($update_id), array(
+			'timeout' => 10,
+			'redirection' => 5,
+			'blocking' => true,
+			'headers' => array( 'X-Simperium-Token' => self::$plugin_settings->simperium->access_token ),
+			'body' => json_encode( $update )
+		    )
+		);
+
+		if ( is_wp_error( $response ) ) {
+		   $error_message = $response->get_error_message();
+		   /* TODO - do something with a failure */
+		} else {
+			print_r($response);
+
+			if ( isset( $response['response']['code'] ) ) {
+				switch ( $response['response']['code'] ) {
+					case 200:
+						/* success */
+						break;
+					case 400:
+						/* bad request */
+						break;
+					case 401:
+						/* authorization error */
+						break;
+					case 404:
+						/* specified object version does not exist */
+						break;
+					case 412:
+					default:
+						/* empty change, object was not modified */
+						break;
+				}
+		   	}
+		}
+	}
+
 }
 
 function wpcom_liveblog_load() {

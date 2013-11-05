@@ -162,12 +162,17 @@ window.liveblog = window.liveblog || {};
 		liveblog.titleBarCount = new liveblog.TitleBarCountView();
 		liveblog.$events.trigger( 'after-views-init' );
 
-		liveblog.init_moment_js();
+		if ( typeof liveblog_settings.simperium != "undefined" && liveblog_settings.simperium.enabled ) {
+			liveblog.simperium_authenticate();
 
-		liveblog.cast_settings_numbers();
-		liveblog.reset_timer();
-		liveblog.set_initial_timestamps();
-		liveblog.start_human_time_diff_timer();
+		} else {
+			liveblog.init_moment_js();
+
+			liveblog.cast_settings_numbers();
+			liveblog.reset_timer();
+			liveblog.set_initial_timestamps();
+			liveblog.start_human_time_diff_timer();
+		}
 
 		liveblog.$events.trigger( 'after-init' );
 	};
@@ -414,6 +419,47 @@ window.liveblog = window.liveblog || {};
 
 	liveblog.is_at_the_top = function() {
 		return $(document).scrollTop()  < liveblog.$entry_container.offset().top;
+	};
+
+	/**
+	 * Simperium integration functions
+	 */
+	liveblog.simperium_authenticate = function() {
+		var url = "https://auth.simperium.com/1/" + liveblog_settings.simperium.app_id + "/authorize/";
+	    $.ajax({
+	        url: url,
+	        type: "POST",
+	        contentType: "application/json",
+	        dataType: "json",
+	        data: JSON.stringify({"username": liveblog_settings.simperium.username, "password": liveblog_settings.simperium.password}),
+	        beforeSend: function(xhr) {
+	            xhr.setRequestHeader("X-Simperium-API-Key", liveblog_settings.simperium.api_key);
+	        },
+	        success: function(data) {
+	        	liveblog_settings.simperium.access_token = data.access_token;
+
+	            console.log("succesfully logged in");
+	            console.log("access token: " + data.access_token);
+	        },
+	        error: function() {
+	            console.log("authentication failure");
+	        }
+	    });
+	};
+
+	liveblog.simperium_load = function() {
+		liveblog.simperium.instance = new Simperium( liveblog_settings.simperium.app_id, { token : liveblog_settings.simperium.access_token } );
+		var bucket = liveblog.simperium.instance.bucket( 'post-' + liveblog_settings.post_id );
+		bucket.on('notify', function(id, data) {
+		    console.log("object " + id + " was updated!");
+		    console.log("new data is:");
+		    console.log(data);
+		});
+		bucket.on('local', function(id) {
+		    console.log("request for local state for object " + id + " received");
+		    return {"some": "json"};
+		});
+		bucket.start();
 	};
 
 	// Initialize everything!
