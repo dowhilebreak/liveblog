@@ -425,6 +425,7 @@ window.liveblog = window.liveblog || {};
 	 * Simperium integration functions
 	 */
 	liveblog.simperium_authenticate = function() {
+		liveblog.simperium = new function(){};
 		var url = "https://auth.simperium.com/1/" + liveblog_settings.simperium.app_id + "/authorize/";
 	    $.ajax({
 	        url: url,
@@ -437,9 +438,9 @@ window.liveblog = window.liveblog || {};
 	        },
 	        success: function(data) {
 	        	liveblog_settings.simperium.access_token = data.access_token;
-
-	            console.log("succesfully logged in");
-	            console.log("access token: " + data.access_token);
+	        	liveblog.simperium_load();
+	            console.log("simperium log in successful.");
+	            console.log("simperium access token: " + data.access_token);
 	        },
 	        error: function() {
 	            console.log("authentication failure");
@@ -451,14 +452,20 @@ window.liveblog = window.liveblog || {};
 		liveblog.simperium.instance = new Simperium( liveblog_settings.simperium.app_id, { token : liveblog_settings.simperium.access_token } );
 		var bucket = liveblog.simperium.instance.bucket( 'post-' + liveblog_settings.post_id );
 		bucket.on('notify', function(id, data) {
-		    console.log("object " + id + " was updated!");
-		    console.log("new data is:");
+		    console.log("object " + id + " has changed:");
 		    console.log(data);
+		    if ( null == data ) {
+		    	/* A change of null indicates that the object has been deleted - should be removed from output. */
+		    	data = { 'type': 'delete', 'id': id, 'html': '' };
+		    }
+		    liveblog.display_entry( data, liveblog_settings.fade_out_duration );
 		});
+		/* Likely not necessary since the server-side handles data manipulation.
 		bucket.on('local', function(id) {
 		    console.log("request for local state for object " + id + " received");
 		    return {"some": "json"};
 		});
+		*/
 		bucket.start();
 	};
 

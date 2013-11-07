@@ -158,12 +158,12 @@ class WPCOM_Liveblog_Entry {
 		if ( is_wp_error( $comment ) ) {
 			return $comment;
 		}
-		do_action( 'liveblog_update_entry', $comment->comment_ID, $args['post_id'] );
 		add_comment_meta( $comment->comment_ID, self::replaces_meta_key, $args['entry_id'] );
 		wp_update_comment( array(
 			'comment_ID'      => $args['entry_id'],
 			'comment_content' => wp_filter_post_kses( $args['content'] ),
 		) );
+		do_action( 'liveblog_update_entry', $comment->comment_ID, $args['post_id'], $args['entry_id'] );
 		$entry = self::from_comment( $comment );
 		return $entry;
 	}
@@ -185,7 +185,8 @@ class WPCOM_Liveblog_Entry {
 		if ( is_wp_error( $comment ) ) {
 			return $comment;
 		}
-		do_action( 'liveblog_delete_entry', $comment->comment_ID, $args['post_id'] );
+		/* Send the replacement entry ID, the post's ID and the old entry's ID */
+		do_action( 'liveblog_delete_entry', $comment->comment_ID, $args['post_id'], $args['entry_id'] );
 		add_comment_meta( $comment->comment_ID, self::replaces_meta_key, $args['entry_id'] );
 		wp_delete_comment( $args['entry_id'] );
 		$entry = self::from_comment( $comment );

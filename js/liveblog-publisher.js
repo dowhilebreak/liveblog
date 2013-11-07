@@ -118,8 +118,12 @@
 			this.enable();
 			this.hide_spinner();
 			this.$textarea.val('');
-			liveblog.reset_timer();
-			liveblog.get_recent_entries_success(response, status, xhr);
+			if ( typeof liveblog_settings.simperium != "undefined" && liveblog_settings.simperium.enabled ) {
+				/* TODO */
+			} else {
+				liveblog.reset_timer();
+				liveblog.get_recent_entries_success(response, status, xhr);
+			}
 		},
 		error: function(response, status) {
 			liveblog.add_error(response, status);

@@ -122,8 +122,10 @@ final class WPCOM_Liveblog {
 		add_action( 'wp_ajax_set_liveblog_state_for_post', array( __CLASS__, 'admin_ajax_set_liveblog_state_for_post' ) );
 		/* Add administration menu to set options */
 		add_action(	'admin_menu',					array( __CLASS__, 'admin_menu' ) );
-		add_action( 'liveblog_enable_simperium',			array( __CLASS__, 'liveblog_enable_simperium' ) );
+		/* Glom on to triggered actions around liveblog entry creation and destruction */
 		add_action( 'liveblog_insert_entry', 		array( __CLASS__, 'liveblog_insert_entry' ) );
+		add_action( 'liveblog_delete_entry', 		array( __CLASS__, 'liveblog_delete_entry' ), 10, 3 );
+		add_action( 'liveblog_update_entry', 		array( __CLASS__, 'liveblog_update_entry' ), 10, 3 );
 	}
 
 	/**
@@ -188,12 +190,25 @@ final class WPCOM_Liveblog {
 		}
 	}
 
-	public static function liveblog_enable_simperium() {
-		self::create_simperium_user();
+
+	/** Remote action handlers for liveblog entry manipulation ************/
+
+	public static function liveblog_insert_entry( $entry_id, $post_id ) {
+		if( self::is_simperium_enabled() ) {
+			self::simperium_add_bucket_entry( $entry_id, $post_id );
+		}
 	}
 
-	public static function liveblog_insert_entry( $update_id, $post_id ) {
-		self::update_simperium_bucket( $update_id, $post_id );
+	public static function liveblog_delete_entry ( $replacement_entry_id, $post_id, $old_entry_id ) {
+		if( self::is_simperium_enabled() ) {
+			self::simperium_delete_bucket_entry( $old_entry_id, $post_id );
+		}
+	}
+
+	public static function liveblog_update_entry ( $replacement_entry_id, $post_id, $old_entry_id ) {
+		if( self::is_simperium_enabled() ) {
+			self::simperium_update_bucket_entry( $replacement_entry_id, $old_entry_id, $post_id );
+		}
 	}
 
 	/**
@@ -386,14 +401,15 @@ final class WPCOM_Liveblog {
 				self::$plugin_settings->simperium->username = $_POST['simperium-username'];
 				self::$plugin_settings->simperium->password = $_POST['simperium-password'];
 			} else {
-				self::get_simperium_username();
-				self::get_simperium_password();
+				self::simperium_get_username();
+				self::simperium_get_password();
 			}
 
 			self::save_settings();
 
-			if ( self::$plugin_settings->simperium->enabled && !$simperium_previously_enabled ) {
-				do_action( 'liveblog_enable_simperium' );
+			if ( self::is_simperium_enabled() && !$simperium_previously_enabled ) {
+				liveblog_enable_simperium();
+				do_action( 'liveblog_simperium_enabled' ); /* future use */
 			}
 		}
 
@@ -443,7 +459,7 @@ final class WPCOM_Liveblog {
 				self::$plugin_settings->simperium->password = $default_settings->simperium->password;
 
 				/* TODO: investigate storing token in session or something to prevent unnecessary background operations */
-				self::authorize_simperium_user();
+				self::simperium_authorize_user();
 			}
 		}
 	}
@@ -610,7 +626,7 @@ final class WPCOM_Liveblog {
 			),
 		));
 
-		if ( self::$plugin_settings->simperium->enabled ) {
+		if ( self::is_simperium_enabled() ) {
 			wp_enqueue_script( 'simperium', 'https://js.simperium.com/v0.1/' );
 		}
 
@@ -640,12 +656,12 @@ final class WPCOM_Liveblog {
 		);
 
 		/* If Simperium support is enabled, set the array values */
-		if ( self::$plugin_settings->simperium->enabled ) {
+		if ( self::is_simperium_enabled() ) {
 			$simperium_support_settings['enabled'] 	= true;
 			$simperium_support_settings['app_id']	= self::$plugin_settings->simperium->application_id;
 			$simperium_support_settings['api_key']	= self::is_liveblog_editable() ? self::$plugin_settings->simperium->admin_api_key : self::$plugin_settings->simperium->observer_api_key;
-			$simperium_support_settings['username']	= self::get_simperium_username();
-			$simperium_support_settings['password'] = self::get_simperium_password();
+			$simperium_support_settings['username']	= self::simperium_get_username();
+			$simperium_support_settings['password'] = self::simperium_get_password();
 		}
 
 		wp_localize_script( self::key, 'liveblog_settings',
@@ -1038,10 +1054,20 @@ final class WPCOM_Liveblog {
 		return version_compare( $wp_version, self::min_wp_version, '<' );
 	}
 
-	/** Simperium-specific functions *****************************************/
+	/** Simperium-specific utility functions *****************************************/
 
-	private static function get_simperium_username() {
-		/* We spoof an email address per post based on the post's ID and the site's domain */
+	public static function liveblog_enable_simperium() {
+		self::simperium_create_user();
+	}
+
+	public static function is_simperium_enabled() {
+		return ( isset( self::$plugin_settings->simperium->enabled ) && self::$plugin_settings->simperium->enabled );
+	}
+
+	private static function simperium_get_username() {
+		/* We spoof an email address per site and store liveblog comments by post ID within the user's data bucket.
+			TODO: Add this to settings as an advanced feature if the user would like to define the Simperium user to use.
+		*/
 		if ( is_null( self::$plugin_settings->simperium->username ) ) {
 			$url_pieces = parse_url( get_site_url() );
 			$this_host = "example.com";
@@ -1055,8 +1081,8 @@ final class WPCOM_Liveblog {
 		return self::$plugin_settings->simperium->username;
 	}
 
-	private static function get_simperium_password() {
-		/* Create an md5 hash of the site's declared URL for an automated password */
+	private static function simperium_get_password() {
+		/* Automated password creation using an md5 hash of the site's declared URL. This will be stored in settings for future use even if the site's url changes. */
 		if ( is_null( self::$plugin_settings->simperium->password ) ) {
 			self::$plugin_settings->simperium->password = md5( get_site_url() );
 		}
@@ -1064,7 +1090,12 @@ final class WPCOM_Liveblog {
 		return self::$plugin_settings->simperium->password;
 	}
 
-	private static function get_simperium_bucket_name( $post_id = null ) {
+	/**
+	 *	Return the string used to name the Simperium data bucket based on the parent post ID.
+	 *
+	 *	@param int $post_id Optional post ID - if omitted the current post ID will be used.
+	 */
+	private static function simperium_get_bucket_name( $post_id = null ) {
 		if ( is_null( $post_id ) ) {
 			$post_id = get_the_ID();
 		}
@@ -1072,7 +1103,9 @@ final class WPCOM_Liveblog {
 		return "post-" . $post_id;
 	}
 
-	private static function create_simperium_user() {
+	/** Simperium HTTP user manipulation functions ****************************/
+
+	private static function simperium_create_user() {
 		$response = wp_remote_post( 'https://auth.simperium.com/1/' . urlencode(self::$plugin_settings->simperium->application_id) . '/create/', array(
 			'timeout' => 10,
 			'redirection' => 5,
@@ -1088,8 +1121,9 @@ final class WPCOM_Liveblog {
 		} else {
 			if ( isset( $response['response']['code'] ) ) {
 				switch ( $response['response']['code'] ) {
-					case 200:
+					case 200: /* Success - user created */
 						$message_body = json_decode($response['body']);
+						/* An access token is returned as part of the response */
 						self::$plugin_settings->simperium->access_token = $message_body->access_token;
 						break;
 					case 409:
@@ -1102,13 +1136,13 @@ final class WPCOM_Liveblog {
 		}
 	}
 
-	private static function authorize_simperium_user() {
-		/* TODO: need to secure this function to prevent unauthorized use (i.e. add logic around admin api key) */
+	private static function simperium_authorize_user() {
+		$use_api_key = self::is_liveblog_editable() ? self::$plugin_settings->simperium->admin_api_key : self::$plugin_settings->simperium->observer_api_key;
 		$response = wp_remote_post( 'https://auth.simperium.com/1/' . urlencode(self::$plugin_settings->simperium->application_id) . '/authorize/', array(
 			'timeout' => 10,
 			'redirection' => 5,
 			'blocking' => true,
-			'headers' => array( 'X-Simperium-API-Key' => self::$plugin_settings->simperium->admin_api_key ),
+			'headers' => array( 'X-Simperium-API-Key' => $use_api_key ),
 			'body' => json_encode( array( 'username' => self::$plugin_settings->simperium->username, 'password' => self::$plugin_settings->simperium->password ) )
 		    )
 		);
@@ -1118,34 +1152,41 @@ final class WPCOM_Liveblog {
 		   /* TODO - do something with a failure */
 		} else {
 			if ( isset( $response['response']['code'] ) ) {
-				var_dump($response['response']['code']);
 				switch ( $response['response']['code'] ) {
-					case 200:
+					case 200: /* Success */
 						$message_body = json_decode($response['body']);
-						print_r($message_body);
 						self::$plugin_settings->simperium->access_token = $message_body->access_token;
 						break;
-					case 409:
-						/* User already exists - assumed that the post was archived and then enabled again. Ignoring... */
-						break;
 					default:
+						/* TODO: failed authorization for some reason. Will need to alert user to check settings */
 						break;
 				}
 		   	}
 		}
 	}
 
-	private static function update_simperium_bucket( $update_id, $post_id ) {
-		$update = get_comment( $update_id );
+	/** Simperium HTTP bucket manipulation functions ****************************/
 
-		print_r(self::$plugin_settings);
+	/**
+	 *	Adds a new comment to the Simperium bucket.
+	 *
+	 *	@param int $entry_id The ID of the comment to push to the Simperium Bucket.
+	 * 	@param int $post_id The ID of the parent post.
+	 */
+	private static function simperium_add_bucket_entry( $entry_id, $post_id ) {
+		$update = self::$entry_query->get_by_id( $entry_id );
+		$output = null;
+		if ( is_a( $update, "WPCOM_Liveblog_Entry" ) ) {
+			$output = $update->for_json();
+		}
 
-		$response = wp_remote_post( 'https://api.simperium.com/1/' . urlencode( self::$plugin_settings->simperium->application_id ) . '/' . urlencode( self::get_simperium_bucket_name() ) . '/i/' . urlencode($update_id), array(
+		$url = 'https://api.simperium.com/1/' . urlencode( self::$plugin_settings->simperium->application_id ) . '/' . urlencode( self::simperium_get_bucket_name( $post_id ) ) . '/i/' . urlencode( $entry_id );
+		$response = wp_remote_post( $url, array(
 			'timeout' => 10,
 			'redirection' => 5,
 			'blocking' => true,
 			'headers' => array( 'X-Simperium-Token' => self::$plugin_settings->simperium->access_token ),
-			'body' => json_encode( $update )
+			'body' => json_encode( $output )
 		    )
 		);
 
@@ -1153,8 +1194,6 @@ final class WPCOM_Liveblog {
 		   $error_message = $response->get_error_message();
 		   /* TODO - do something with a failure */
 		} else {
-			print_r($response);
-
 			if ( isset( $response['response']['code'] ) ) {
 				switch ( $response['response']['code'] ) {
 					case 200:
@@ -1178,6 +1217,104 @@ final class WPCOM_Liveblog {
 		}
 	}
 
+	/**
+	 *	Updates a comment already in the Simperium bucket, but by nature of the Simperium API will also create a new entry if the ID of the update does not exist.
+	 *	Because new comments are added as replacements for older comments (to be caught by the polling manager's elapsed time-based queries) this function requires the IDs of the new replacement entry, the old modified entry and the parent post.
+	 *
+	 *	@param int $updated_entry_id The entry ID of the comment that replaces the original.
+	 *	@param int $original_entry_id The ID of the original comment.
+	 * 	@param int $post_id The ID of the parent post.
+	 */
+	private static function simperium_update_bucket_entry( $updated_entry_id, $original_entry_id, $post_id ) {
+		/* In an effort to reuse as much of the polling code as possible, we generate the output from the replacement entry which sets the appropriate type to "update", and therefor allows the output to be seamlessly processed by the client-side JS already in place.*/
+		$update = self::$entry_query->get_by_id( $updated_entry_id );
+		$output = null;
+		if ( is_a( $update, "WPCOM_Liveblog_Entry" ) ) {
+			$output = $update->for_json();
+		}
+
+		$url = 'https://api.simperium.com/1/' . urlencode( self::$plugin_settings->simperium->application_id ) . '/' . urlencode( self::simperium_get_bucket_name( $post_id ) ) . '/i/' . urlencode( $original_entry_id );
+		$response = wp_remote_post( $url, array(
+			'timeout' => 10,
+			'redirection' => 5,
+			'blocking' => true,
+			'headers' => array( 'X-Simperium-Token' => self::$plugin_settings->simperium->access_token ),
+			'body' => json_encode( $output )
+		    )
+		);
+
+		if ( is_wp_error( $response ) ) {
+		   $error_message = $response->get_error_message();
+		   /* TODO - do something with a failure */
+		} else {
+			if ( isset( $response['response']['code'] ) ) {
+				switch ( $response['response']['code'] ) {
+					case 200:
+						/* success */
+						break;
+					case 400:
+						/* bad request */
+						break;
+					case 401:
+						/* authorization error */
+						break;
+					case 404:
+						/* specified object version does not exist */
+						break;
+					case 412:
+					default:
+						/* empty change, object was not modified */
+						break;
+				}
+		   	}
+		}
+	}
+
+
+	/**
+	 *	Deletes an entry from the Simperium bucket.
+	 *
+	 *	@param int $entry_id The ID of the comment to be deleted.
+	 * 	@param int $post_id The ID of the parent post.
+	 */
+	private static function simperium_delete_bucket_entry( $entry_id, $post_id ) {
+		$url = 'https://api.simperium.com/1/' . urlencode( self::$plugin_settings->simperium->application_id ) . '/' . urlencode( self::simperium_get_bucket_name( $post_id ) ) . '/i/' . urlencode( $entry_id );
+		$response = wp_remote_request( $url, array(
+			'method' => 'DELETE',
+			'timeout' => 10,
+			'redirection' => 5,
+			'blocking' => true,
+			'headers' => array( 'X-Simperium-Token' => self::$plugin_settings->simperium->access_token )
+		    )
+		);
+
+		if ( is_wp_error( $response ) ) {
+		   $error_message = $response->get_error_message();
+		   /* TODO - do something with a failure */
+		} else {
+
+			if ( isset( $response['response']['code'] ) ) {
+				switch ( $response['response']['code'] ) {
+					case 200:
+						/* success */
+						break;
+					case 400:
+						/* bad request */
+						break;
+					case 401:
+						/* authorization error */
+						break;
+					case 404:
+						/* specified object version does not exist */
+						break;
+					case 412:
+					default:
+						/* empty change, object was not modified */
+						break;
+				}
+		   	}
+		}
+	}
 }
 
 function wpcom_liveblog_load() {
