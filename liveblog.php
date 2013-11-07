@@ -408,7 +408,7 @@ final class WPCOM_Liveblog {
 			self::save_settings();
 
 			if ( self::is_simperium_enabled() && !$simperium_previously_enabled ) {
-				liveblog_enable_simperium();
+				self::liveblog_enable_simperium();
 				do_action( 'liveblog_simperium_enabled' ); /* future use */
 			}
 		}
@@ -776,6 +776,8 @@ final class WPCOM_Liveblog {
 		$liveblog_output .= '<div id="liveblog-update-spinner"></div>';
 		$liveblog_output .= self::get_all_entry_output();
 		$liveblog_output .= '</div>';
+
+		$liveblog_output .= self::get_template_part( 'liveblog-single-entry-client-template.php', array( 'is_liveblog_editable' => self::is_liveblog_editable() ) );
 
 		$liveblog_output = apply_filters( 'liveblog_add_to_content', $liveblog_output, $content, self::$post_id );
 
@@ -1177,7 +1179,7 @@ final class WPCOM_Liveblog {
 		$update = self::$entry_query->get_by_id( $entry_id );
 		$output = null;
 		if ( is_a( $update, "WPCOM_Liveblog_Entry" ) ) {
-			$output = $update->for_json();
+			$output = $update->get_fields_for_render();
 		}
 
 		$url = 'https://api.simperium.com/1/' . urlencode( self::$plugin_settings->simperium->application_id ) . '/' . urlencode( self::simperium_get_bucket_name( $post_id ) ) . '/i/' . urlencode( $entry_id );
@@ -1230,7 +1232,7 @@ final class WPCOM_Liveblog {
 		$update = self::$entry_query->get_by_id( $updated_entry_id );
 		$output = null;
 		if ( is_a( $update, "WPCOM_Liveblog_Entry" ) ) {
-			$output = $update->for_json();
+			$output = $update->get_fields_for_render();
 		}
 
 		$url = 'https://api.simperium.com/1/' . urlencode( self::$plugin_settings->simperium->application_id ) . '/' . urlencode( self::simperium_get_bucket_name( $post_id ) ) . '/i/' . urlencode( $original_entry_id );

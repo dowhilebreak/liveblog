@@ -72,7 +72,7 @@ class WPCOM_Liveblog_Entry {
 
 		$entry = array(
 			'entry_id'              => $entry_id,
-			'post_id'               => $entry_id,
+			'post_id'               => $post_id,
 			'css_classes'           => comment_class( '', $entry_id, $post_id, false ),
 			'content'               => self::render_content( get_comment_text( $entry_id ), $this->comment ),
 			'original_content'      => get_comment_text( $entry_id ),
@@ -83,6 +83,8 @@ class WPCOM_Liveblog_Entry {
 			'entry_time'            => get_comment_date( get_option('time_format'), $entry_id ),
 			'timestamp'             => $this->get_timestamp(),
 			'is_liveblog_editable'  => WPCOM_Liveblog::is_liveblog_editable(),
+			'entry_type'			=> $this->get_type(),
+			'target_entry_id'		=> $this->replaces ? $this->replaces : $this->get_id()
 		);
 
 		return $entry;

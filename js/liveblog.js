@@ -2,6 +2,13 @@
 window.liveblog = window.liveblog || {};
 
 ( function( $ ) {
+
+	_.templateSettings = {
+		interpolate: /\{\{(.+?)\}\}/g,
+		escape: /\{\{\-(.+?)\}\}/g,
+		evaluate: /\{\{\~(.+?)\}\}/g,
+	};
+
 	Backbone.emulateHTTP = true;
 
 	liveblog.EntriesView = Backbone.View.extend({
@@ -161,6 +168,8 @@ window.liveblog = window.liveblog || {};
 		liveblog.entriesContainer = new liveblog.EntriesView();
 		liveblog.titleBarCount = new liveblog.TitleBarCountView();
 		liveblog.$events.trigger( 'after-views-init' );
+
+		liveblog.single_entry_template = _.template($('#liveblog-single-entry-template').html());
 
 		if ( typeof liveblog_settings.simperium != "undefined" && liveblog_settings.simperium.enabled ) {
 			liveblog.simperium_authenticate();
@@ -454,11 +463,16 @@ window.liveblog = window.liveblog || {};
 		bucket.on('notify', function(id, data) {
 		    console.log("object " + id + " has changed:");
 		    console.log(data);
-		    if ( null == data ) {
-		    	/* A change of null indicates that the object has been deleted - should be removed from output. */
-		    	data = { 'type': 'delete', 'id': id, 'html': '' };
+		    /* A change of null indicates that the object has been deleted so we're defaulting to a "delete" state. */
+		    var entry = { 'type': 'delete', 'id': id, 'html': '' };
+		    if ( null != data ) {
+		    	entry = {
+		    		'type': data.entry_type,
+		    		'id': id,
+		    		'html': liveblog.single_entry_template( data )
+		    	};
 		    }
-		    liveblog.display_entry( data, liveblog_settings.fade_out_duration );
+		    liveblog.display_entry( entry, liveblog_settings.fade_out_duration );
 		});
 		/* Likely not necessary since the server-side handles data manipulation.
 		bucket.on('local', function(id) {
