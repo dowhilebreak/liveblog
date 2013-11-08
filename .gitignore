@@ -3,3 +3,4 @@ wpcom-helper.php
 test/bundle/*.js
 bin/mergejs
 libpeerconnection.log
+Thumbs.db
