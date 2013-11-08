@@ -171,17 +171,17 @@ window.liveblog = window.liveblog || {};
 
 		liveblog.single_entry_template = _.template($('#liveblog-single-entry-template').html());
 
+		liveblog.init_moment_js();
+		liveblog.cast_settings_numbers();
+
 		if ( liveblog.simperium_is_enabled() ) {
 			liveblog.simperium_authenticate();
-
 		} else {
-			liveblog.init_moment_js();
-
-			liveblog.cast_settings_numbers();
 			liveblog.reset_timer();
-			liveblog.set_initial_timestamps();
-			liveblog.start_human_time_diff_timer();
 		}
+
+		liveblog.set_initial_timestamps();
+		liveblog.start_human_time_diff_timer();
 
 		liveblog.$events.trigger( 'after-init' );
 	};
