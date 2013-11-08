@@ -102,6 +102,10 @@
 					entry_id: this.get_id_for_ajax_request(),
 					content: new_entry_content
 				};
+			if ( liveblog.simperium_is_enabled() ) {
+				data.simperium_token = liveblog_settings.simperium.access_token;
+			}
+
 			if ( ! new_entry_content ) {
 				return;
 			}
@@ -114,7 +118,7 @@
 			this.enable();
 			this.hide_spinner();
 			this.$textarea.val('');
-			if ( typeof liveblog_settings.simperium != "undefined" && liveblog_settings.simperium.enabled ) {
+			if ( liveblog.simperium_is_enabled() ) {
 				/* TODO */
 			} else {
 				liveblog.reset_timer();
@@ -242,6 +246,10 @@
 			entry_id: id
 		};
 		data[liveblog_settings.nonce_key] = liveblog.publisher.nonce;
+		if ( liveblog.simperium_is_enabled() ) {
+			data.simperium_token = liveblog_settings.simperium.access_token;
+		}
+
 		liveblog.publisher.insert_form.disable();
 		liveblog.publisher.insert_form.show_spinner();
 		liveblog.ajax_request( liveblog_settings.endpoint_url + 'crud', data, _.bind(liveblog.publisher.insert_form.success, liveblog.publisher.insert_form), _.bind(liveblog.publisher.insert_form.error, liveblog.publisher.insert_form), 'POST' );

@@ -171,7 +171,7 @@ window.liveblog = window.liveblog || {};
 
 		liveblog.single_entry_template = _.template($('#liveblog-single-entry-template').html());
 
-		if ( typeof liveblog_settings.simperium != "undefined" && liveblog_settings.simperium.enabled ) {
+		if ( liveblog.simperium_is_enabled() ) {
 			liveblog.simperium_authenticate();
 
 		} else {
@@ -459,7 +459,7 @@ window.liveblog = window.liveblog || {};
 
 	liveblog.simperium_load = function() {
 		liveblog.simperium.instance = new Simperium( liveblog_settings.simperium.app_id, { token : liveblog_settings.simperium.access_token } );
-		var bucket = liveblog.simperium.instance.bucket( 'post-' + liveblog_settings.post_id );
+		var bucket = liveblog.simperium.instance.bucket( 'feed' );
 		bucket.on('notify', function(id, data) {
 		    console.log("object " + id + " has changed:");
 		    console.log(data);
@@ -482,6 +482,10 @@ window.liveblog = window.liveblog || {};
 		*/
 		bucket.start();
 	};
+
+	liveblog.simperium_is_enabled = function() {
+		return ( typeof liveblog_settings.simperium != "undefined" && liveblog_settings.simperium.enabled );
+	}
 
 	// Initialize everything!
 	if ( 'archive' !== liveblog_settings.state ) {
