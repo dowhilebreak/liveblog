@@ -316,6 +316,9 @@ a.liveblog-form-entry::-webkit-input-placeholder {
 .liveblog-entry .liveblog-meta .liveblog-author-avatar {
 	float: left;
 	margin: 0 10px 0 0;
+	display: block;
+	width: 30px;
+	height: 30px;
 }
 .liveblog-entry .liveblog-meta .liveblog-author-avatar img {
 	width: 30px;
