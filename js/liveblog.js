@@ -12,8 +12,8 @@ window.liveblog = window.liveblog || {};
 		},
 
 		initialize: function() {
-			_.bindAll( this, 'update', 'render', 'delete', 'deleteClick', 'editClick' );
-			this.model.on( 'destroy', this.delete, this );
+			_.bindAll( this, 'update', 'render', 'destroy', 'deleteClick', 'editClick' );
+			this.model.on( 'destroy', this.destroy, this );
 			this.model.on( 'change:html', this.update, this );
 			this.model.on( 'updateTime', this.updateTime, this );
 		},
@@ -33,7 +33,7 @@ window.liveblog = window.liveblog || {};
 			this.updateTime();
 		},
 
-		delete: function() {
+		destroy: function() {
 			this.remove();
 		},
 
