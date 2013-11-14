@@ -272,14 +272,14 @@ window.liveblog = window.liveblog || {};
 				response_timestamp = ( Date.parse( xhr.getResponseHeader( 'Date' ) )  / 1000 );
 
 			/* In the event that a response does not supply a date (specifically IE returning a 304) we default to the previous known timestamp */
-			if ( null === response_timestamp || _.isNaN( response_timestamp ) ) {
+			if ( _.isNaN( response_timestamp ) ) {
 				response_timestamp = liveblog.latest_response_server_timestamp;
 			}
 
-		  	liveblog.latest_response_server_timestamp = Math.floor( response_timestamp );
+			liveblog.latest_response_server_timestamp = Math.floor( response_timestamp );
 			liveblog.latest_response_local_timestamp  = this.currentTimestamp();
 
-		  	if ( response && response.latest_timestamp ) {
+			if ( response && response.latest_timestamp ) {
 				liveblog.latest_entry_timestamp = response.latest_timestamp;
 			}
 
