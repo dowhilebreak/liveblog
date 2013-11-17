@@ -16,6 +16,7 @@ window.liveblog = window.liveblog || {};
 			this.model.on( 'destroy', this.destroy, this );
 			this.model.on( 'change:html', this.update, this );
 			this.model.on( 'updateTime', this.updateTime, this );
+			this.model.on( 'updateDomRelationship', this.setModelDomRelationship, this );
 		},
 
 		render: function() {
@@ -71,6 +72,10 @@ window.liveblog = window.liveblog || {};
 
 		formatTimestamp: function( timestamp ) {
 			return moment.unix( timestamp ).fromNow();
+		},
+
+		setModelDomRelationship: function() {
+			this.model.$el = this.$el;
 		}
 	});
 
@@ -125,7 +130,8 @@ window.liveblog = window.liveblog || {};
 		},
 
 		scrollToTop: function() {
-			$( window ).scrollTop( this.$el.offset().top );
+			var new_postion = this.$el.offset().top - ( null !== jQuery( '#wpadminbar' ) ? jQuery( '#wpadminbar' ).outerHeight( true ) : 0 );
+			jQuery( 'html, body' ).animate( { scrollTop: new_postion }, 1000, 'swing', function() { /* nothing yet */ } );
 		},
 
 		flushQueueWhenOnTop: function() {
@@ -168,30 +174,54 @@ window.liveblog = window.liveblog || {};
 		initialize: function() {
 			var queue = liveblog.queue;
 			queue.on( 'fetched', function() {
-				queue.inserted().each( function( entry ) {
-					if ( liveblog.entriesContainer.isAtTheTop() ) {
-						this.add( entry );
-						queue.remove( entry );
-					}
-				}, this );
+				this.processQueue( 'passive' );
+			}, this );
+		},
 
-				queue.updated().each( function( entry ) {
-					var existingEntry = this.get( entry.id );
-					if ( existingEntry ) {
-						existingEntry.set( 'html', entry.get( 'html' ) );
-						existingEntry.trigger( 'change:html' );
-						queue.remove( entry );
-					}
-				}, this );
+		/**
+		 * @param  string mode [ One of 'passive' or 'manual' - manual forces the queue to process regardless of the user's position on the page. ]
+		 */
+		processQueue: function( mode ) {
+			if ( 'undefined' === typeof mode || null === mode ) {
+				mode = 'passive';
+			}
 
-				queue.deleted().each( function( entry ) {
-					var model = this.get( entry.id );
-					if ( model ) {
-						model.trigger( 'destroy' );
-						this.remove( model );
-					}
+			/* New entries are automatically populated if the user is at the top of the page - otherwise we show the nag to not disturb their reading. */
+			var queue = liveblog.queue;
+			queue.inserted().each( function( entry ) {
+				if ( 'manual' === mode || ( 'passive' === mode && liveblog.entriesContainer.isAtTheTop() ) ) {
+					this.add( entry );
 					queue.remove( entry );
-				}, this );
+				}
+			}, this );
+
+			/* On update we have a complicated use case...
+			 * 	If the user is sitting at the top of the page, then we assume they are just waiting for new content and process the update.
+			 * 	If the updated entry is below the viewport then we process it.
+			 *	If the user is scrolled down the page and the updated entry is above the bottom of the viewport then we don't want to disturb them so we show the nag bar.
+			 * 	If the main text of the entry has not changed then we process the update silently (no nag). This happens on the admin's screen after making the update.
+			 */
+			queue.updated().each( function( entry ) {
+				var existingEntry = this.get( entry.id );
+				/* TODO: Ideally, the model would receive the JSON data for the entry instead of the final HTML so we can do a straight comparison and not deal with jQuery. */
+				var update_text = jQuery('.liveblog-entry-text', entry.get('html')).text();
+				var current_text = jQuery('.liveblog-entry-text', existingEntry.get('html')).text();
+
+				if ( existingEntry && ( 'manual' === mode || ( 'passive' === mode && ( liveblog.entriesContainer.isAtTheTop() || existingEntry.isViewBelowFold() ) ) || update_text === current_text ) ) {
+					existingEntry.set( 'html', entry.get( 'html' ) );
+					existingEntry.trigger( 'change:html' );
+					queue.remove( entry );
+				}
+			}, this );
+
+			/* If an editor wants to delete something we assume it needs to dissapear immediately and that the nag bar shouldn't be invoked. */
+			queue.deleted().each( function( entry ) {
+				var model = this.get( entry.id );
+				if ( model ) {
+					model.trigger( 'destroy' );
+					this.remove( model );
+				}
+				queue.remove( entry );
 			}, this );
 		}
 	});
@@ -232,6 +262,36 @@ window.liveblog = window.liveblog || {};
 			}
 
 			return parsed;
+		},
+
+		setDomRelationship: function( element ) {
+			this.$el = element;
+		},
+
+		isViewInViewport: function() {
+			this.trigger( 'updateDomRelationship' );
+			var viewport_height = jQuery( window ).height();
+			var document_scroll = jQuery( document ).scrollTop();
+			var el_offset = this.$el.offset();
+
+			if ( document_scroll < el_offset.top && document_scroll + viewport_height > el_offset.top ) {
+				return true;
+			}
+
+			return false;
+		},
+
+		isViewBelowFold: function() {
+			this.trigger( 'updateDomRelationship' );
+			var viewport_height = jQuery( window ).height();
+			var document_scroll = jQuery( document ).scrollTop();
+			var el_offset = this.$el.offset();
+
+			if ( document_scroll + viewport_height < el_offset.top ) {
+				return true;
+			}
+
+			return false;
 		}
 	});
 
@@ -426,7 +486,8 @@ window.liveblog = window.liveblog || {};
 		render: function() {
 			var entries_in_queue = liveblog.queue.modified().length;
 
-			if ( entries_in_queue && !liveblog.entriesContainer.isAtTheTop() ) {
+			/* By this point any entries left in the queue require the nag bar. */
+			if ( entries_in_queue ) {
 				this.show();
 				this.updateNumber( entries_in_queue );
 			} else {
@@ -445,13 +506,13 @@ window.liveblog = window.liveblog || {};
 
 		flush: function( e ) {
 			e.preventDefault();
-			liveblog.queue.modified().each( function( entry ) {
-				if ( !liveblog.entries.get( entry.id ) && !liveblog.queue.deleted().get( entry.id ) ) {
-					liveblog.entries.add( entry );
-				}
-			} );
+			var has_new_entries = ( liveblog.queue.inserted().length > 0 );
+			liveblog.entries.processQueue( 'manual' );
 			liveblog.queue.flush();
-			liveblog.entriesContainer.scrollToTop();
+			if ( has_new_entries ) {
+				liveblog.entriesContainer.scrollToTop();
+			}
+			this.render();
 		},
 
 		updateNumber: function( number ) {
