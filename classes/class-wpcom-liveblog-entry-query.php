@@ -47,7 +47,7 @@ class WPCOM_Liveblog_Entry_Query {
 	 * @return array
 	 */
 	public function get_all( $args = array() ) {
-		return self::remove_replaced_entries( $this->get( $args ) );
+		return self::remove_replaced_entries( $this->get( $args ), 'complete_set' );
 	}
 
 	public function get_by_id( $id ) {
@@ -108,7 +108,7 @@ class WPCOM_Liveblog_Entry_Query {
 			}
 		}
 
-		return self::remove_replaced_entries( $entries_between );
+		return self::remove_replaced_entries( $entries_between, 'partial_set' );
 	}
 
 	public function has_any() {
@@ -148,9 +148,12 @@ class WPCOM_Liveblog_Entry_Query {
 	 * the same set.
 	 *
 	 * @param array $entries
+	 * @param string $mode - One of 'partial_set' or 'complete_set'.
+	 *                     'partial_set' indicates that the $entries array contains only values between two timestamps.
+	 *                     'complete_set' indicates that the $entries array contains all of the post entries.
 	 * @return array
 	 */
-	public static function remove_replaced_entries( $entries = array() ) {
+	public static function remove_replaced_entries( $entries = array(), $mode = 'partial_set' ) {
 
 		if ( empty( $entries ) )
 			return $entries;
@@ -158,7 +161,7 @@ class WPCOM_Liveblog_Entry_Query {
 		$entries_by_id = self::assoc_array_by_id( $entries );
 
 		foreach ( (array) $entries_by_id as $id => $entry ) {
-			if ( !empty( $entry->replaces ) && isset( $entries_by_id[$entry->replaces] ) ) {
+			if ( !empty( $entry->replaces ) && ( ( 'partial_set' === $mode && isset( $entries_by_id[$entry->replaces] ) ) || 'complete_set' === $mode ) ) {
 				unset( $entries_by_id[$id] );
 			}
 		}
