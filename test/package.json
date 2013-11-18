@@ -1,14 +1,15 @@
 {
-  "name": "liveblog-tests",
-  "version": "0.0.0",
-  "devDependencies": {
-    "sinon": "~1.7.3",
-    "mocha": "~1.12.0",
-    "request": "~2.22.0",
-    "wd": "0.1.0",
-    "karma": "0.9.5",
-    "karma-mocha": "0.0.4",
-    "chai": "~1.7.2",
-    "coffee-script": "~1.6.3"
-  }
+	"name": "liveblog-tests",
+	"version": "0.2.0",
+	"description": "Test suite for the WordPress Liveblog plugin.",
+	"devDependencies": {
+		"sinon": "~1.7.3",
+		"mocha": "1.14.0",
+		"request": "2.27.0",
+		"wd": "0.2.4",
+		"karma": "0.10.4",
+		"karma-mocha": "0.1.0",
+		"chai": "1.8.1",
+		"coffee-script": "1.6.3"
+	}
 }

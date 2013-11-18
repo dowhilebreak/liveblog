@@ -1,150 +1,119 @@
 // Currently requires liveblog plugin to be activated, and enabled on post
 
-require('coffee-script');
+var utilities = require( './common/common' );
+var wd = require( 'wd' );
+var chai = require( 'chai' );
+var chaiAsPromised = require( 'chai-as-promised' );
 
-var wd = require('wd'),
-  Wd40 = require(__dirname + '/../wd40').wd40,
-  should = require('chai').should();
+chai.use(chaiAsPromised);
 
-var wd40 = new Wd40();
+var should = chai.should();
+var asserters = wd.asserters;
 
-var BASE_URL = process.env.BASE_URL || 'http://local.wordpress.dev',
-    WP_USER = process.env.WP_USER || 'admin',
-    WP_PASS = process.env.WP_PASS || 'password',
-    WP_POST_ID = process.env.WP_POST_ID || '1';
+describe( 'Publishing a liveblog update', function() {
+	var browser;
+	var id,
+		klass,
+		entry,
+		random = String( Math.random() );
 
-describe('Publishing a liveblog update', function() {
-  context("When I'm logged in as an admin", function() {
-    before( function( done ) {
-      wd40.init( function(err) {
-        wd40.browser.get(BASE_URL + '/wp-login.php', function(){
-          return done( err );
-        });
-      });
-    });
+	context( "When I'm logged in as an admin", function() {
+		before( function( done ) {
+			browser = utilities.startAdminBrowser();
+			done();
+		});
 
-    before( function( done ) {
-      wd40.fill( '#user_login', WP_USER, function( err ){
-        wd40.fill( '#user_pass', WP_PASS, function( err ){
-          wd40.click( '#wp-submit', function( err ){
-            done( err );
-          });
-        });
-      });
-    });
+		context( 'when I enter some text and press Publish', function() {
 
-    context('when I enter some text and press Publish', function() {
-      var id, klass, entry,
-          random = String(Math.random());
+			before( function( done ) {
+				browser.elementByCss( 'textarea.liveblog-form-entry' )
+				.click()
+				.type( random )
+				.elementByCss( '.liveblog-form-entry-submit' )
+				.click()
+				.nodeify( done );
+			});
 
-      before( function( done ) {
-        wd40.browser.get(BASE_URL + '/?p=1', function( err ){
-          return done( err );
-        });
-      });
+			it( 'shows my comment', function() {
+				return browser.elementByCss( '#liveblog-entries' ).text().should.eventually.include( random );
+			});
 
-      before( function( done ) {
-        wd40.fill( 'textarea.liveblog-form-entry', random, function( err ){
-          wd40.click( '.liveblog-form-entry-submit', function( err ){
-            return done( err );
-          });
-        });
-      });
+			before( function( done ) {
+				setTimeout( function() {
+					browser.elementsByCss( '.liveblog-entry', function( err, elements ) {
+						entry = elements[0];
+						elements[0].getAttribute( 'id', function( err, _id ) {
+							id = _id;
+							elements[0].getAttribute( 'class', function( err, _klass ) {
+								klass = _klass;
+								done( err );
+							});
+						});
+					});
+				}, 2000 ); // need to wait as it doesn't appear immediately
+			});
 
-      it('shows my comment', function( done ) {
-        wd40.elementByCss( '#liveblog-entries', function( err, element ) {
-          setTimeout( function() {
-            element.text( function( err, text ) {
-              text.should.include(random);
-              return done();
-            });
-          }, 2000); // TODO: should poll rather than wait arbitrary time
-        });
-      });
+			it( 'highlights my comment', function() {
+				klass.should.include( 'highlight' );
+			});
 
-      before(function( done ) {
-        setTimeout( function() {
-          wd40.browser.elementsByCssSelector( '.liveblog-entry', function( err, elements ) {
-            entry = elements[0];
-            elements[0].getAttribute('id', function( err, _id ) {
-              id = _id;
-              elements[0].getAttribute('class', function( err, _klass ) {
-                klass = _klass;
-                done(err);
-              });
-            });
-          });
-        }, 2000); // need to wait as it doesn't appear immediately
-      });
+			it( 'shows the time in a human readable form', function( done ) {
+				entry.text( function( err, text ) {
+					text.should.include( 'FEW SECONDS' );
+					done( err );
+				});
+			});
 
-      it('highlights my comment', function() {
-        klass.should.include('highlight');
-      });
+			it( 'shows my name', function( done ) {
+				entry.text( function( err, text ) {
+					text.should.include( utilities.getAdminUser() );
+					done( err );
+				});
+			});
 
-      it('shows the time in a human readable form', function(done) {
-        entry.text( function( err, text ) {
-          text.should.include('FEW SECONDS');
-          done(err);
-        });
-      });
+			context( 'when I edit the entry', function() {
+				before( function( done ) {
+					browser.elementByCss( '#' + id + ' .liveblog-entry-edit' )
+						.click()
+						.elementByCss( '#' + id + ' textarea' )
+						.type( random + 'bar' )
+						.elementByCss( '#' + id + ' .liveblog-form-entry-submit' )
+						.click()
+						.nodeify( done );
+				});
 
-      it('shows my name', function(done) {
-        entry.text( function( err, text ) {
-          text.should.include('admin');
-          done(err);
-        });
-      });
+				// Wait for it to update
+				before( function( done ) {
+					setTimeout( done, 1000 );
+				});
 
-      context('when I edit the entry', function() {
-        before(function(done) {
-          wd40.click('#' + id + ' .liveblog-entry-edit', function(err) {
-            wd40.fill('#' + id + ' textarea', random + 'bar', function(err) {
-              wd40.click('#' + id + ' .liveblog-form-entry-submit', function(err) {
-                done(err);
-              });
-            });
-          });
-        });
+				it( 'shows the updated text', function( done ) {
+					browser.elementByCss( '#liveblog-entries', function( err, element ) {
+						element.text( function( err, text ){
+							text.should.include( random + 'bar' );
+							done( err );
+						});
+					});
+				});
+			});
+		}); // end publish context
 
-        // Wait for it to update
-        before(function(done) {
-          setTimeout(done, 1000);
-        });
+		context( 'when I delete an entry', function() {
+			before( function( done ) {
+				browser.elementByCss( '#' + id + ' .liveblog-entry-delete' )
+					.click()
+					.nodeify( done );
+			});
 
-        it('shows the updated text', function(done) {
-          wd40.elementByCss('#liveblog-entries', function(err, element) {
-            element.text( function(err, text){
-              text.should.include(random + 'bar');
-              done(err);
-            });
-          });
-        });
-      });
-    }); // end publish context
+			before( function( done ) {
+				browser.acceptAlert( function( err ) {
+					done( err );
+				});
+			});
 
-    context('when I delete an entry', function() {
-      before(function( done ) {
-        wd40.browser.elementsByCssSelector( '.liveblog-entry', function( err, elements ) {
-          elements[0].getAttribute('id', function( err, _id ) {
-            id = _id;
-            done(err);
-          });
-        });
-      });
-
-      before(function( done ) {
-        wd40.click('#' + id + ' .liveblog-entry-delete', done);
-      });
-
-      before(function( done ) {
-        wd40.browser.acceptAlert(done);
-      });
-
-      it('gets removed from the page', function(done) {
-        wd40.waitForInvisibleByCss('#' + id, done);
-      });
-
-    });
-
-  });
+			it( 'gets removed from the page', function() {
+				return browser.waitForConditionInBrowser( "( jQuery( '#" + id + "' ).length === 0 )", 50 * 1000, 100 ).should.eventually.become( true );
+			});
+		});
+	});
 });

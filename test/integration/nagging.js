@@ -1,160 +1,135 @@
 // Currently requires liveblog plugin to be activated, and enabled on post
 
-require('coffee-script');
+var utilities = require( './common/common' );
+var wd = require( 'wd' );
+var chai = require( 'chai' );
+var chaiAsPromised = require( 'chai-as-promised' );
 
-var wd = require('wd'),
-  Wd40 = require(__dirname + '/../wd40').wd40,
-  should = require('chai').should();
+chai.use(chaiAsPromised);
+
+var should = chai.should();
+var asserters = wd.asserters;
+var sending_browser,
+	receiving_browser;
+
+var scroll_page_script = "jQuery( window ).scrollTop( jQuery( '#liveblog-container' ).offset().top + ( jQuery( '#liveblog-container' ).height() / 2 ) );";
+
+describe( 'Actions between browsers', function() {
+	var id,
+		klass,
+		entry,
+		random = String( Math.random() );
+
+	before( function( done ) {
+		sending_browser = utilities.startAdminBrowser();
+		done();
+	});
+
+	before( function( done ) {
+		receiving_browser = utilities.startAnonymousBrowser();
+		done();
+	});
+
+	context( '(sending browser) when I enter some text and press Publish', function() {
+
+		before( function( done ) {
+			sending_browser.elementByCss( 'textarea.liveblog-form-entry' )
+				.click()
+				.type( random )
+				.elementByCss( '.liveblog-form-entry-submit' )
+				.click()
+				.nodeify( done );
+		});
+
+		before(function( done ) {
+			receiving_browser.eval( scroll_page_script );
+			done();
+		});
+
+		it( 'shows a nag view in the receiving browser', function( done ) {
+			receiving_browser.waitForElementByCss( '#liveblog-fixed-nag', asserters.isVisible, 50 * 1000, 100, function( err, element ) {
+				done( err );
+			});
+		});
+
+		context( 'when I click the nag bar in the receving browser', function( done ) {
+			before( function() {
+				receiving_browser.elementByCssSelector( '#liveblog-fixed-nag a' )
+					.click()
+					.nodeify( done );
+			});
+
+			it( 'shows my comment', function( done ) {
+				receiving_browser.elementByCss( '#liveblog-entries', function( err, element ) {
+					element.text( function( err, text ) {
+						text.should.include( random );
+						return done( err );
+					});
+				});
+			});
+		});
+	});
+
+	context( 'when I edit the entry in the sending browser', function() {
+
+		before( function( done ) {
+			sending_browser.eval( "jQuery( '#liveblog-entries > .liveblog-entry' ).first().attr('id');", function( err, value ) {
+				id = value;
+
+				receiving_browser.eval( scroll_page_script, function( err, value ) {
+					sending_browser.elementByCss( '#' + id + ' .liveblog-entry-edit' )
+						.click()
+						.elementByCss( '#' + id + ' textarea' )
+						.type( random + 'bar' )
+						.elementByCss( '#' + id + ' .liveblog-form-entry-submit' )
+						.click()
+						.nodeify( done );
+				});
+			});
+		});
+
+		it( 'shows a nag view in the receiving browser', function( done ) {
+			receiving_browser.waitForElementByCss( '#liveblog-fixed-nag', asserters.isVisible, 50 * 1000, 100, function( err, element ) {
+				done( err );
+			});
+		});
+
+		context( 'when I click the nag bar in the receving browser', function( done ) {
+
+			before( function() {
+				receiving_browser.elementByCssSelector( '#liveblog-fixed-nag a' )
+					.click()
+					.nodeify( done );
+			});
+
+			it( 'shows the updated text', function( done ) {
+				receiving_browser.elementByCss( '#liveblog-entries', function( err, element ) {
+					element.text( function( err, text ) {
+						text.should.include( random + 'bar' );
+						done( err );
+					});
+				});
+			});
+		});
+	});
 
 
-var BASE_URL = process.env.BASE_URL || 'http://local.wordpress.dev',
-    WP_USER = process.env.WP_USER || 'admin',
-    WP_PASS = process.env.WP_PASS || 'password',
-    WP_POST_ID = process.env.WP_POST_ID || '1';
+	context( 'when I delete the entry in the sending browser', function() {
 
-var launchAndLogin = function(done) {
-  var wd40 = new Wd40();
+		before(function( done ) {
+			sending_browser.elementByCss( '#' + id + ' .liveblog-entry-delete' )
+				.click()
+				.nodeify( done );
+		});
 
-  // TODO: use promises to avoid nested callback hell
-  // TODO: DRY
-  wd40.init(function(err) {
-    wd40.browser.get(BASE_URL + '/wp-login.php', function(){
-      wd40.fill( '#user_login', WP_USER, function( err ){
-        wd40.fill( '#user_pass', WP_PASS, function( err ){
-          wd40.click( '#wp-submit', function( err ){
-            wd40.browser.get(BASE_URL + '/?p=1', function( err ){
-              return done( err, wd40 );
-            });
-          });
-        });
-      });
-    });
-  });
-};
+		before(function( done ) {
+			sending_browser.acceptAlert( function( err ) {
+				done( err );
+			});
+		});
 
-var sndWd40, rcvWd40;
-describe('Actions between browsers', function() {
-  var id, klass, entry,
-      random = String(Math.random());
-
-  before(function(done) {
-    launchAndLogin(function(err, wd40) {
-      sndWd40 = wd40;
-      done(err);
-    });
-  });
-
-  before(function(done) {
-    launchAndLogin(function(err, wd40) {
-      rcvWd40 = wd40;
-      done(err);
-    });
-  });
-
-  context('(sending browser) when I enter some text and press Publish', function() {
-
-    before( function( done ) {
-      sndWd40.fill( 'textarea.liveblog-form-entry', random, function( err ){
-        sndWd40.click( '.liveblog-form-entry-submit', function( err ){
-          return done( err );
-        });
-      });
-    });
-
-    before(function(done) {
-      rcvWd40.browser.eval("jQuery(window).scrollTop(jQuery(document).height());", done)
-    });
-
-    it('shows a nag view in the receiving browser', function( done ) {
-      rcvWd40.browser.waitForVisibleByCssSelector('#liveblog-fixed-nag', 10 * 1000, done);
-    });
-
-
-
-    context('when I click the nag bar in the receving browser', function( done ) {
-      before(function(done) {
-        rcvWd40.click('#liveblog-fixed-nag a', done);
-      });
-
-      it('shows my comment', function( done ) {
-        rcvWd40.elementByCss( '#liveblog-entries', function( err, element ) {
-          element.text( function( err, text ) {
-            text.should.include(random);
-            return done();
-          });
-        });
-      });
-
-    });
-
-  });
-
-  //TODO: DRY
-  before(function( done ) {
-    setTimeout( function() {
-      sndWd40.browser.elementsByCssSelector( '.liveblog-entry', function( err, elements ) {
-        entry = elements[0];
-        elements[0].getAttribute('id', function( err, _id ) {
-          id = _id;
-          elements[0].getAttribute('class', function( err, _klass ) {
-            klass = _klass;
-            done(err);
-          });
-        });
-      });
-    }, 2000); // need to wait as it doesn't appear immediately
-  });
-
-  context('when I edit the entry in the sending browser', function() {
-    before(function(done) {
-      sndWd40.click('#' + id + ' .liveblog-entry-edit', function(err) {
-        sndWd40.fill('#' + id + ' textarea', random + 'bar', function(err) {
-          sndWd40.click('#' + id + ' .liveblog-form-entry-submit', function(err) {
-            done(err);
-          });
-        });
-      });
-    });
-
-    it('shows a nag view in the receiving browser', function( done ) {
-      rcvWd40.browser.waitForVisibleByCssSelector('#liveblog-fixed-nag', 10 * 1000, done);
-    });
-
-    it('shows the updated text', function(done) {
-      rcvWd40.elementByCss('#liveblog-entries', function(err, element) {
-        element.text( function(err, text){
-          text.should.include(random + 'bar');
-          done(err);
-        });
-      });
-    });
-  });
-
-  context('when I delete the entry in the sending browser', function() {
-    before(function( done ) {
-      sndWd40.browser.elementsByCssSelector( '.liveblog-entry', function( err, elements ) {
-        elements[0].getAttribute('id', function( err, _id ) {
-          id = _id;
-          done(err);
-        });
-      });
-    });
-
-    before(function( done ) {
-      sndWd40.click('#' + id + ' .liveblog-entry-delete', done);
-    });
-
-    before(function( done ) {
-      sndWd40.browser.acceptAlert(done);
-    });
-
-    it('shows a nag view in the receiving browser', function( done ) {
-      rcvWd40.browser.waitForVisibleByCssSelector('#liveblog-fixed-nag', 10 * 1000, done);
-    });
-
-    it('gets removed from the page', function(done) {
-      sndWd40.waitForInvisibleByCss('#' + id, done);
-    });
-
-  });
+		it( 'gets removed from the page', function() {
+			return receiving_browser.waitForConditionInBrowser( "( jQuery( '#" + id + "' ).length === 0 )", 50 * 1000, 100 ).should.become( true );
+		});
+	});
 });

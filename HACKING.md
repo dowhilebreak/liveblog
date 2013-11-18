@@ -43,7 +43,7 @@ Pretty straight-forward:
 
 Unit tests are run with [karma](http://karma-runner.github.io/) - which runs unit tests in Chrome - this is so we don't have to fake out the DOM and BOM.
 
-To install Karma:
+To install Karma (and packages necessary for the integration tests):
 
     cd test
     npm install
@@ -60,12 +60,12 @@ The integration tests use Selenium WebDriver to run.
 To install selenium & chromedriver:
 * Create a directory that you'll store selenium & chromedriver in.
 * Download selenium-server-standalone from https://code.google.com/p/selenium/downloads/list
-* Download and unzip chromedriver from https://code.google.com/p/chromedriver/downloads/list
+* Download and unzip chromedriver from http://chromedriver.storage.googleapis.com/index.html
 
-The tests have been tested with Selenium 2.35 and ChromeDriver 2.2.
+The tests have been tested with Selenium 2.37 and ChromeDriver 2.6.
 
 To run the tests:
-* Start the Selenium server by `cd`ing into the directory where you downloaded selenium and chromedriver to and running `java -jar selenium-server-standalone-2.35.0.jar -Dwebdriver.chrome.driver=chromedriver`, replacing the version number appropriately.
-* In another terminal, `cd test` and run `mocha --timeout 10000 integration/` to run all the tests
+* Start the Selenium server by `cd`ing into the directory where you downloaded selenium and chromedriver to and running `java -jar selenium-server-standalone-2.37.0.jar -Dwebdriver.chrome.driver=chromedriver`, replacing the version number appropriately (and appending ".exe" if using Windows).
+* In another terminal, `cd test` and run `mocha --timeout 10000 integration/` to run all the tests. You may need to increase the timeout depending on how quickly Chrome responds to commands.
 
 Note that these tests may be somewhat unreliable due to timing issues and Selenium/ChromeDriver bugs!
