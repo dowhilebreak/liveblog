@@ -158,7 +158,7 @@ class WPCOM_Liveblog_Entry_Query {
 		$entries_by_id = self::assoc_array_by_id( $entries );
 
 		foreach ( (array) $entries_by_id as $id => $entry ) {
-			if ( !empty( $entry->replaces ) ) {
+			if ( !empty( $entry->replaces ) && isset( $entries_by_id[$entry->replaces] ) ) {
 				unset( $entries_by_id[$id] );
 			}
 		}
