@@ -12,7 +12,7 @@ var asserters = wd.asserters;
 var sending_browser,
 	receiving_browser;
 
-var scroll_page_script = "jQuery( window ).scrollTop( jQuery( '#liveblog-container' ).offset().top + ( jQuery( '#liveblog-container' ).height() / 2 ) );";
+var scroll_page_script = "( function() { jQuery( 'html, body' ).scrollTop( jQuery( document ).height() - jQuery( window ).height() ); return true; } )()";
 
 describe( 'Actions between browsers', function() {
 	var id,
@@ -42,8 +42,7 @@ describe( 'Actions between browsers', function() {
 		});
 
 		before(function( done ) {
-			receiving_browser.eval( scroll_page_script );
-			done();
+			receiving_browser.eval( scroll_page_script ).nodeify( done );
 		});
 
 		it( 'shows a nag view in the receiving browser', function( done ) {
@@ -52,8 +51,8 @@ describe( 'Actions between browsers', function() {
 			});
 		});
 
-		context( 'when I click the nag bar in the receving browser', function( done ) {
-			before( function() {
+		context( 'when I click the nag bar in the receving browser', function() {
+			before( function( done ) {
 				receiving_browser.elementByCssSelector( '#liveblog-fixed-nag a' )
 					.click()
 					.nodeify( done );
@@ -73,19 +72,27 @@ describe( 'Actions between browsers', function() {
 	context( 'when I edit the entry in the sending browser', function() {
 
 		before( function( done ) {
-			sending_browser.eval( "jQuery( '#liveblog-entries > .liveblog-entry' ).first().attr('id');", function( err, value ) {
+			sending_browser.eval( "jQuery( '#liveblog-entries > .liveblog-entry' ).first().attr('id')", function( err, value ) {
 				id = value;
-
-				receiving_browser.eval( scroll_page_script, function( err, value ) {
-					sending_browser.elementByCss( '#' + id + ' .liveblog-entry-edit' )
-						.click()
-						.elementByCss( '#' + id + ' textarea' )
-						.type( random + 'bar' )
-						.elementByCss( '#' + id + ' .liveblog-form-entry-submit' )
-						.click()
-						.nodeify( done );
-				});
+				done();
 			});
+		});
+
+		before( function( done ) {
+			/* We have to delay this because the browser is usually6 still animating by the time this function is reached. */
+			setTimeout( function() {
+				receiving_browser.eval( scroll_page_script ).nodeify( done );
+			}, 2000 );
+		});
+
+		before( function( done ) {
+			sending_browser.elementByCss( '#' + id + ' .liveblog-entry-edit' )
+				.click()
+				.elementByCss( '#' + id + ' textarea' )
+				.type( random + 'bar' )
+				.elementByCss( '#' + id + ' .liveblog-form-entry-submit' )
+				.click()
+				.nodeify( done );
 		});
 
 		it( 'shows a nag view in the receiving browser', function( done ) {
@@ -116,13 +123,13 @@ describe( 'Actions between browsers', function() {
 
 	context( 'when I delete the entry in the sending browser', function() {
 
-		before(function( done ) {
+		before( function( done ) {
 			sending_browser.elementByCss( '#' + id + ' .liveblog-entry-delete' )
 				.click()
 				.nodeify( done );
 		});
 
-		before(function( done ) {
+		before( function( done ) {
 			sending_browser.acceptAlert( function( err ) {
 				done( err );
 			});
